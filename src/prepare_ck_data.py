@@ -116,25 +116,53 @@ def run_ck(repo_dir: Path, output_dir: Path) -> pd.DataFrame:
         safe_print(f"CK output file not found at {class_csv_path}")
         return pd.DataFrame()
 
-def process_commits(df: pd.DataFrame, worker_id: int):
-    """
-    Process the commits assigned to this worker and write results to a partial CSV.
-    """
-    worker_repo_dir = copy_repository(REPO_DIR, worker_id)
-    repo = Repo(worker_repo_dir)
-    checkout_commit(repo, 'main')
+analyzed_commits = set()
+processing_commits = set()
+analyzed_commits_lock = threading.Lock()
+processing_commits_lock = threading.Lock()
 
-    commit_number = 0
-    for index, row in df.iterrows():
-        commit_number += 1
-        commit_hash = row['commit_hash']
-        safe_print(f"[Worker {worker_id}] Processing commit {commit_number} of {len(df)}: {commit_hash}")
+def load_analyzed_commits():
+    """
+    Load analyzed commits from existing CSV filenames in DATASET_FOLDER/CK.
+    """
+    ck_folder = DATASET_FOLDER / 'CK'
+    if not ck_folder.exists():
+        return
+    for filename in os.listdir(ck_folder):
+        if filename.endswith('.csv'):
+            commit_hash = filename.replace('.csv', '')
+            with analyzed_commits_lock:
+                analyzed_commits.add(commit_hash)
+
+def mark_commit_analyzed(commit_hash: str):
+    """
+    Add a commit hash to the set of analyzed commits.
+    """
+    with analyzed_commits_lock:
+        analyzed_commits.add(commit_hash)
+
+def analyze_commit(commit_hash: str, repo: Repo, worker_repo_dir: Path):
+    """
+    Analyze the specified commit if it has not been analyzed yet.
+    """
+    with analyzed_commits_lock:
+        if commit_hash in analyzed_commits:
+            safe_print(f"Commit {commit_hash} already analyzed.")
+            return
+    with processing_commits_lock:
+        if commit_hash in processing_commits:
+            safe_print(f"Commit {commit_hash} is being processed by another thread.")
+            return
+        processing_commits.add(commit_hash)
+
+    try:
+        safe_print(f"Processing commit {commit_hash}...")
 
         # Checkout the current commit
         checkout_commit(repo, commit_hash)
 
         # Run CK tool for the current commit
-        output_dir = ROOT_DIR / f'ck_metrics_output_worker_{worker_id}'
+        output_dir = ROOT_DIR / f'ck_metrics_output_{commit_hash}'
         metrics_df = run_ck(worker_repo_dir, output_dir)
 
         # Add commit hash to metrics DataFrame
@@ -145,42 +173,63 @@ def process_commits(df: pd.DataFrame, worker_id: int):
         commit_output_csv.parent.mkdir(parents=True, exist_ok=True)
         metrics_df.to_csv(commit_output_csv, index=False)
 
+        # Mark commit as analyzed
+        mark_commit_analyzed(commit_hash)
+    except Exception as e:
+        safe_print(f"Error while processing commit {commit_hash}: {e}")
+    finally:
+        with processing_commits_lock:
+            processing_commits.remove(commit_hash)
+
         # Clean up CK output
         if output_dir.exists():
             shutil.rmtree(output_dir)
+
+def process_commits(df: pd.DataFrame, worker_id: int):
+    """
+    Process the commits assigned to this worker and write results to a partial CSV.
+    """
+    worker_repo_dir = copy_repository(REPO_DIR, worker_id)
+    repo = Repo(worker_repo_dir)
+    #checkout_commit(repo, 'main')
+
+    commit_number = 0
+    for index, row in df.iterrows():
+        commit_number += 1
+        commit_hash = row['commit_hash']
+        analyze_commit(commit_hash, repo, worker_repo_dir) 
 
         # Get the parent commit and run CK again
         try:
             commit_obj = repo.commit(commit_hash)
             if commit_obj.parents:
                 parent_commit_hash = commit_obj.parents[0].hexsha
-                safe_print(f"[Worker {worker_id}] Parent commit found: {parent_commit_hash}")
-                # Checkout the parent commit
-                checkout_commit(repo, parent_commit_hash)
-
-                # Run CK on parent commit
-                parent_metrics_df = run_ck(worker_repo_dir, output_dir)
-                parent_metrics_df['commit'] = parent_commit_hash
-
-                # Save parent commit metrics to CSV
-                parent_commit_output_csv = DATASET_FOLDER / 'CK' / f'{commit_hash}_parent.csv'
-                parent_commit_output_csv.parent.mkdir(parents=True, exist_ok=True)
-                parent_metrics_df.to_csv(parent_commit_output_csv, index=False)
-
-                # Clean up CK output
-                if output_dir.exists():
-                    shutil.rmtree(output_dir)
-
-                # Checkout back to the current commit to proceed normally
-                checkout_commit(repo, commit_hash)
+                analyze_commit(parent_commit_hash, repo, worker_repo_dir)
             else:
                 safe_print(f"[Worker {worker_id}] Commit {commit_hash} has no parent, skipping parent CK run.")
         except Exception as e:
-            safe_print(f"Error while processing parent commit for {commit_hash}: {e}")
+            safe_print(f"Error while processing commit {parent_commit_hash}, parent commit of {commit_hash}: {e}")
 
 
     #shutil.rmtree(worker_repo_dir)
     #safe_print(f"[Worker {worker_id}] Removed repository copy at {worker_repo_dir}.")
+
+def save_commit_history():
+    """
+    Saves the commit history into a single file in the DATASET_FOLDER folder.
+    Each line contains a commit hash, starting from the latest commit to the earliest.
+    """
+    repo = Repo(REPO_DIR)
+    commit_history_file = DATASET_FOLDER / 'commit_history.txt'
+
+    commit = repo.head.commit
+    with open(commit_history_file, 'w') as f:
+        while commit:
+            f.write(f"{commit.hexsha}\n")
+            if commit.parents:
+                commit = commit.parents[0]
+            else:
+                commit = None
 
 def main():
     # Clone the repository if necessary
@@ -189,6 +238,12 @@ def main():
 
     print("Cloning repository...")
     clone_repository(REPO_URL, REPO_DIR)
+
+    # Load analyzed commits before processing
+    load_analyzed_commits()
+
+    print("Saving commit history...")
+    save_commit_history()
 
     # Find the dataset CSV file
     try:
@@ -202,7 +257,7 @@ def main():
     
     # Use fraction of the dataset for testing (adjust as needed)
     print(len(df))
-    df = df.sample(frac=0.0002)
+    df = df.sample(frac=0.0001, random_state=42)
     print(len(df))
 
 
