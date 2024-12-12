@@ -23,7 +23,7 @@ print_lock = threading.Lock()
 
 def safe_print(*args, **kwargs):
     with print_lock:
-        print(*args, **kwargs)
+        print(f"[{datetime.datetime.now()}] [{threading.current_thread().name}]", *args, **kwargs)
 
 def find_csv_file(folder: Path) -> Path:
     for file_name in os.listdir(folder):
@@ -197,6 +197,8 @@ def process_commits(df: pd.DataFrame, worker_id: int):
     for index, row in df.iterrows():
         commit_number += 1
         commit_hash = row['commit_hash']
+        safe_print(f"Processing commit {commit_number} of {len(df)}: {commit_hash}")
+        
         analyze_commit(commit_hash, repo, worker_repo_dir) 
 
         # Get the parent commit and run CK again
@@ -206,7 +208,7 @@ def process_commits(df: pd.DataFrame, worker_id: int):
                 parent_commit_hash = commit_obj.parents[0].hexsha
                 analyze_commit(parent_commit_hash, repo, worker_repo_dir)
             else:
-                safe_print(f"[Worker {worker_id}] Commit {commit_hash} has no parent, skipping parent CK run.")
+                safe_print(f"Commit {commit_hash} has no parent, skipping parent CK run.")
         except Exception as e:
             safe_print(f"Error while processing commit {parent_commit_hash}, parent commit of {commit_hash}: {e}")
 
@@ -267,7 +269,7 @@ def main():
     threads = []
 
     for worker_id, df_part in enumerate(df_splits):
-        t = threading.Thread(target=process_commits, args=(df_part.copy(), worker_id))
+        t = threading.Thread(target=process_commits, args=(df_part.copy(), worker_id), name=f"Worker-{worker_id}")
         t.start()
         threads.append(t)
 
