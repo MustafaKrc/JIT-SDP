@@ -8,6 +8,7 @@ import threading
 import numpy as np
 from git import Repo, GitCommandError
 import datetime
+import logging
 
 # Constants
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -21,9 +22,13 @@ CK_JAR_PATH = ROOT_DIR / "third_party" / "ck-ck-0.7.0" / "target" / 'ck-0.7.0-ja
 NUM_WORKERS = 4  # Number of parallel worker threads
 print_lock = threading.Lock()
 
+logging.basicConfig(filename='logfile.log', level=logging.INFO, format='[%(asctime)s] [%(threadName)s] %(message)s')
+
 def safe_print(*args, **kwargs):
     with print_lock:
-        print(f"[{datetime.datetime.now()}] [{threading.current_thread().name}]", *args, **kwargs)
+        message = ' '.join(map(str, args))
+        print(f"[{datetime.datetime.now()}] [{threading.current_thread().name}] {message}", **kwargs)
+        logging.info(message)
 
 def find_csv_file(folder: Path) -> Path:
     for file_name in os.listdir(folder):
@@ -236,15 +241,15 @@ def save_commit_history():
 def main():
     # Clone the repository if necessary
     start_time = datetime.datetime.now()
-    print("Start time: ", start_time)
+    safe_print("Start time: ", start_time)
 
-    print("Cloning repository...")
+    safe_print("Cloning repository...")
     clone_repository(REPO_URL, REPO_DIR)
 
     # Load analyzed commits before processing
     load_analyzed_commits()
 
-    print("Saving commit history...")
+    safe_print("Saving commit history...")
     save_commit_history()
 
     # Find the dataset CSV file
@@ -280,11 +285,11 @@ def main():
     safe_print("All workers finished processing commits.")
 
     end_time = datetime.datetime.now()
-    print("End time: ", end_time)
-    print(f"Processed {len(df)} commits.")
-    print(f"Averaged {len(df) / NUM_WORKERS} commits per worker.")
-    print(f"Total time: {end_time - start_time}")
-    print(f"Average time per commit: {(end_time - start_time) / len(df)}")
+    safe_print("End time: ", end_time)
+    safe_print(f"Processed {len(df)} commits.")
+    safe_print(f"Averaged {len(df) / NUM_WORKERS} commits per worker.")
+    safe_print(f"Total time: {end_time - start_time}")
+    safe_print(f"Average time per commit: {(end_time - start_time) / len(df)}")
 
 if __name__ == '__main__':
     main()
