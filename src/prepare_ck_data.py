@@ -264,9 +264,11 @@ def main():
     
     # Use fraction of the dataset for testing (adjust as needed)
     print(len(df))
-    df = df.sample(frac=0.0001, random_state=42)
-    print(len(df))
+    #df = df.sample(frac=0.0001, random_state=42)
+    #print(len(df))
 
+    # remove commits that are already analyzed from df
+    df = df[~df['commit_hash'].isin(analyzed_commits)]
 
     # Split the dataframe into parts for each worker
     df_splits = np.array_split(df, NUM_WORKERS)
