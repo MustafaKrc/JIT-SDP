@@ -50,7 +50,7 @@ def copy_repository(original_repo_dir: Path, worker_id: int) -> Path:
     """
     Creates a copy of the repository directory for a specific worker.
     """
-    worker_repo_dir = ROOT_DIR / 'repositories' / f'elasticsearch_worker_{worker_id}'
+    worker_repo_dir = ROOT_DIR / 'repositories' / f'repo_worker_{worker_id}'
     if worker_repo_dir.exists():
         # Update the repository
         safe_print(f"Updating repository for worker {worker_id}...")
@@ -74,7 +74,7 @@ def checkout_commit(repo: Repo, commit_hash: str):
     Checks out the repository at the specified commit.
     """
     try:
-        repo.git.checkout(commit_hash)
+        repo.git.checkout(commit_hash, force=True)
     except GitCommandError as e:
         safe_print(f"Error checking out commit {commit_hash}: {e}")
 
@@ -229,14 +229,9 @@ def save_commit_history():
     repo = Repo(REPO_DIR)
     commit_history_file = DATASET_FOLDER / 'commit_history.txt'
 
-    commit = repo.head.commit
     with open(commit_history_file, 'w') as f:
-        while commit:
+        for commit in repo.iter_commits('main'):
             f.write(f"{commit.hexsha}\n")
-            if commit.parents:
-                commit = commit.parents[0]
-            else:
-                commit = None
 
 def main():
     # Clone the repository if necessary
