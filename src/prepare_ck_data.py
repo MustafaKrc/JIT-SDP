@@ -12,14 +12,15 @@ import logging
 
 # Constants
 ROOT_DIR = Path(__file__).resolve().parents[1]
-REPO_URL = 'https://github.com/elastic/elasticsearch.git'  # Replace with your repository URL
-REPO_DIR = ROOT_DIR / 'repositories' / 'elasticsearch'  # Main local directory for the repository
-DATASET_FOLDER = ROOT_DIR / 'dataset' / 'java' / 'elasticsearch'
+REPO_NAME = 'jgroups'
+REPO_URL = 'https://github.com/belaban/JGroups.git'  # Replace with your repository URL
+REPO_MAIN_BRANCH = 'master'
+REPO_DIR = ROOT_DIR / 'repositories' / REPO_NAME  # Main local directory for the repository
+DATASET_FOLDER = ROOT_DIR / 'dataset' / 'java' / REPO_NAME
 OUTPUT_CSV = ROOT_DIR / 'expanded_dataset.csv'  # Path for the output CSV file
 CK_JAR_PATH = ROOT_DIR / "third_party" / "ck-ck-0.7.0" / "target" / 'ck-0.7.0-jar-with-dependencies.jar'  # Path to the CK jar file
 
-
-NUM_WORKERS = 4  # Number of parallel worker threads
+NUM_WORKERS = 16  # Number of parallel worker threads
 print_lock = threading.Lock()
 
 logging.basicConfig(filename='logfile.log', level=logging.INFO, format='[%(asctime)s] [%(threadName)s] %(message)s')
@@ -50,14 +51,14 @@ def copy_repository(original_repo_dir: Path, worker_id: int) -> Path:
     """
     Creates a copy of the repository directory for a specific worker.
     """
-    worker_repo_dir = ROOT_DIR / 'repositories' / f'repo_worker_{worker_id}'
+    worker_repo_dir = ROOT_DIR / 'repositories' / f'{REPO_NAME}_worker_{worker_id}'
     if worker_repo_dir.exists():
         # Update the repository
         safe_print(f"Updating repository for worker {worker_id}...")
         repo = Repo(worker_repo_dir)
         try:
             repo.git.fetch()
-            repo.git.reset('--hard', 'origin/main')
+            repo.git.reset('--hard', f'origin/{REPO_MAIN_BRANCH}')
             repo.git.clean('-fdx')
         except GitCommandError as e:
             safe_print(f"Error updating repository for worker {worker_id}: {e}")
@@ -196,7 +197,7 @@ def process_commits(df: pd.DataFrame, worker_id: int):
     """
     worker_repo_dir = copy_repository(REPO_DIR, worker_id)
     repo = Repo(worker_repo_dir)
-    #checkout_commit(repo, 'main')
+    #checkout_commit(repo, REPO_MAIN_BRANCH)
 
     commit_number = 0
     for index, row in df.iterrows():
@@ -230,7 +231,7 @@ def save_commit_history():
     commit_history_file = DATASET_FOLDER / 'commit_history.txt'
 
     with open(commit_history_file, 'w') as f:
-        for commit in repo.iter_commits('main'):
+        for commit in repo.iter_commits(REPO_MAIN_BRANCH):
             f.write(f"{commit.hexsha}\n")
 
 def main():
