@@ -1,5 +1,13 @@
-ck_metrics_output/*
-codeql_database/*
+ck_metrics_output*/*
+
 repositories/*
+!repositories/.gitkeep
+
 third_party/*
+!third_party/.gitkeep
+
 *.log
+
+.history/*
+
+.venv/*
